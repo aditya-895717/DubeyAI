@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: dubeyai
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    preDeployCommand: python manage.py migrate
+    startCommand: gunicorn django_chatbot.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    healthCheckPath: /login/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: ALLOWED_HOSTS
+        value: .onrender.com
+      - key: SECURE_SSL_REDIRECT
+        value: "True"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dubeyai-db
+          property: connectionString
+
+databases:
+  - name: dubeyai-db
+    plan: free
+    databaseName: dubeyai
+    user: dubeyai

@@ -1,37 +1,176 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+{% load static %}
 
-{% block title %}Chat - DubeyAI{% endblock %}
+{% block title %}AI Workspace | DubeyAI{% endblock %}
+{% block body_class %}app-body{% endblock %}
 
-{% block content %}
-    {% if chats %}
-        {% for chat in chats %}
-            <div class="message-item user">
-                <div class="message-content">{{ chat.message }}</div>
-            </div>
-            <div class="message-item ai">
-                <div class="message-content">{{ chat.response }}</div>
-            </div>
-        {% endfor %}
-    {% else %}
-        <div class="empty-state">
-            <i class="fas fa-comments"></i>
-            <h3>Welcome to DubeyAI</h3>
-            <p>Start a conversation to begin</p>
+{% block body %}
+<div class="app-shell" id="appShell">
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+    <aside class="app-sidebar" id="appSidebar" aria-label="Chat history">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">D</span>
+            <span>
+                <strong>DubeyAI</strong>
+                <small>Intelligence workspace</small>
+            </span>
         </div>
-    {% endif %}
+
+        <button class="new-chat-button" id="newChatButton" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            New conversation
+        </button>
+
+        <label class="history-search" for="historySearch">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <input id="historySearch" type="search" placeholder="Search conversations" autocomplete="off">
+        </label>
+
+        <div class="sidebar-label">
+            <span>Recent</span>
+            <span>{{ total_chats }}</span>
+        </div>
+
+        <nav class="history-list" id="historyList">
+            {% for chat in chats reversed %}
+                <button
+                    class="history-item"
+                    type="button"
+                    data-chat-id="{{ chat.id }}"
+                    data-message="{{ chat.message|escape }}"
+                    data-response="{{ chat.response|escape }}"
+                    data-created="{{ chat.created_at|date:'c' }}"
+                >
+                    <span class="history-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M20 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h9a4 4 0 0 1 4 4z"/></svg>
+                    </span>
+                    <span class="history-copy">
+                        <strong>{{ chat.message|truncatechars:34 }}</strong>
+                        <small>{{ chat.created_at|timesince }} ago</small>
+                    </span>
+                </button>
+            {% empty %}
+                <p class="history-empty" id="historyEmpty">Your conversations will appear here.</p>
+            {% endfor %}
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="account-row">
+                <span class="avatar">{{ request.user.username|first|upper }}</span>
+                <span class="account-copy">
+                    <strong>{{ request.user.username }}</strong>
+                    <small>Secure workspace</small>
+                </span>
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button class="icon-button" type="submit" aria-label="Sign out" title="Sign out">
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/></svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </aside>
+
+    <main class="workspace">
+        <header class="workspace-header">
+            <div class="header-title">
+                <button class="mobile-menu-button" id="mobileMenuButton" type="button" aria-label="Open sidebar">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+                </button>
+                <div class="assistant-badge">
+                    <span class="assistant-orb" aria-hidden="true"></span>
+                    <span>
+                        <strong>Nemotron Assistant</strong>
+                        <small><i></i> Online and ready</small>
+                    </span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <span class="private-label">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+                    Private session
+                </span>
+                <button class="icon-button" id="clearHistoryButton" type="button" title="Clear history" aria-label="Clear chat history">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <section class="messages-area" id="messagesArea" aria-live="polite">
+            <div class="welcome-panel" id="welcomePanel">
+                <div class="welcome-mark" aria-hidden="true">D</div>
+                <p class="eyebrow">ENTERPRISE AI ASSISTANT</p>
+                <h1>How can I help you move forward?</h1>
+                <p>Ask for analysis, writing, strategy, code, or a clear second opinion. Your conversation stays tied to your private account.</p>
+                <div class="prompt-grid">
+                    <button class="prompt-card" type="button" data-prompt="Create a concise project plan with milestones and risks.">
+                        <span>Plan a project</span>
+                        <small>Milestones, owners, and risks</small>
+                    </button>
+                    <button class="prompt-card" type="button" data-prompt="Review this idea critically and identify the strongest improvements.">
+                        <span>Challenge an idea</span>
+                        <small>Find gaps and sharpen the thinking</small>
+                    </button>
+                    <button class="prompt-card" type="button" data-prompt="Draft a professional executive summary for my topic.">
+                        <span>Draft an executive brief</span>
+                        <small>Clear, polished, and decision-ready</small>
+                    </button>
+                </div>
+            </div>
+
+            <div class="conversation" id="conversation">
+                {% for chat in chats %}
+                    <article class="message-row message-user" data-chat-id="{{ chat.id }}">
+                        <div class="message-avatar">{{ request.user.username|first|upper }}</div>
+                        <div class="message-stack">
+                            <div class="message-meta"><strong>You</strong><span>{{ chat.created_at|date:"g:i A" }}</span></div>
+                            <div class="message-bubble">{{ chat.message|linebreaksbr }}</div>
+                        </div>
+                    </article>
+                    <article class="message-row message-assistant" data-chat-id="{{ chat.id }}">
+                        <div class="message-avatar">D</div>
+                        <div class="message-stack">
+                            <div class="message-meta"><strong>DubeyAI</strong><span>{{ chat.created_at|date:"g:i A" }}</span></div>
+                            <div class="message-bubble">{{ chat.response|linebreaksbr }}</div>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <div class="composer-wrap">
+            <div class="alert app-alert" id="appAlert" role="alert" hidden></div>
+            <form
+                class="composer"
+                id="chatForm"
+                data-chat-url="{% url 'chat' %}"
+                data-clear-url="{% url 'clear_history' %}"
+                data-max-length="{{ max_message_length }}"
+            >
+                {% csrf_token %}
+                <textarea
+                    id="messageInput"
+                    rows="1"
+                    maxlength="{{ max_message_length }}"
+                    placeholder="Message DubeyAI..."
+                    aria-label="Message DubeyAI"
+                    required
+                ></textarea>
+                <div class="composer-footer">
+                    <span class="composer-hint">Enter to send <i></i> Shift + Enter for a new line</span>
+                    <button class="send-button" id="sendButton" type="submit" aria-label="Send message">
+                        <span>Send</span>
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    </button>
+                </div>
+            </form>
+            <p class="disclaimer">AI can make mistakes. Review important information before acting on it.</p>
+        </div>
+    </main>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script>
-    // Populate sidebar with chat history
-    const chatHistory = document.getElementById('chatHistoryContainer');
-    const messages = document.querySelectorAll('.message-item.user .message-content');
-    messages.forEach((msg, idx) => {
-        const text = msg.textContent.substring(0, 40);
-        const item = document.createElement('div');
-        item.className = 'chat-history-item' + (idx === 0 ? ' active' : '');
-        item.innerHTML = `<i class="fas fa-comment"></i> ${text}${msg.textContent.length > 40 ? '...' : ''}`;
-        chatHistory.appendChild(item);
-    });
-</script>
+<script src="{% static 'chatbot/js/chat.js' %}" defer></script>
 {% endblock %}
