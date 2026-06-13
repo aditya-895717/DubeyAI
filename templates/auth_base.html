@@ -4,14 +4,19 @@
 
 {% block body %}
 <main class="auth-shell">
+    <!-- Left showcase panel -->
     <section class="auth-showcase">
         <a class="auth-brand" href="{% url 'login' %}">
             <span class="brand-mark">D</span>
-            <span><strong>DubeyAI</strong><small>Intelligence workspace</small></span>
+            <span>
+                <strong>DubeyAI</strong>
+                <small>Intelligence workspace</small>
+            </span>
         </a>
+
         <div class="auth-statement">
             <p class="eyebrow">BUILT FOR FOCUSED WORK</p>
-            <h1>Enterprise intelligence, without the noise.</h1>
+            <h1>Enterprise intelligence,<br>without the noise.</h1>
             <p>Move from question to clear action in a private AI workspace designed for thoughtful, high-quality work.</p>
             <div class="auth-proof">
                 <span><i></i> Secure account sessions</span>
@@ -19,9 +24,11 @@
                 <span><i></i> NVIDIA Nemotron intelligence</span>
             </div>
         </div>
+
         <p class="auth-copyright">&copy; {% now "Y" %} DubeyAI. Built for better decisions.</p>
     </section>
 
+    <!-- Right auth card -->
     <section class="auth-panel">
         <div class="auth-card">
             {% block auth_content %}{% endblock %}

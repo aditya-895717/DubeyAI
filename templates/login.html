@@ -7,8 +7,18 @@
 <h2>Sign in to your workspace</h2>
 <p class="auth-intro">Continue your conversations and pick up where you left off.</p>
 
+{# Non-field errors contain the "invalid credentials" message from AuthenticationForm #}
 {% if form.non_field_errors %}
-    <div class="alert app-alert" role="alert">{{ form.non_field_errors|striptags }}</div>
+    <div class="alert app-alert" role="alert">
+        {% for error in form.non_field_errors %}{{ error }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+    </div>
+{% endif %}
+
+{# Show Django messages (e.g. "Your workspace is ready" from register redirect) #}
+{% if messages %}
+    {% for msg in messages %}
+        <div class="alert app-alert app-alert--success" role="status">{{ msg }}</div>
+    {% endfor %}
 {% endif %}
 
 <form method="post" class="auth-form" novalidate>
@@ -16,14 +26,20 @@
     <div class="form-field">
         <label for="{{ form.username.id_for_label }}">Username</label>
         {{ form.username }}
-        {% for error in form.username.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        {% for error in form.username.errors %}
+            <small class="field-error" role="alert">{{ error }}</small>
+        {% endfor %}
     </div>
     <div class="form-field">
         <label for="{{ form.password.id_for_label }}">Password</label>
         {{ form.password }}
-        {% for error in form.password.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        {% for error in form.password.errors %}
+            <small class="field-error" role="alert">{{ error }}</small>
+        {% endfor %}
     </div>
-    <button class="auth-submit" type="submit">Sign in securely</button>
+    <button class="auth-submit" type="submit" id="loginSubmitBtn">
+        Sign in securely
+    </button>
 </form>
 
 <p class="auth-switch">New to DubeyAI? <a href="{% url 'register' %}">Create an account</a></p>
