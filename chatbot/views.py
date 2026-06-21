@@ -1,5 +1,7 @@
+import datetime
 import json
 import logging
+import os
 
 from django.conf import settings
 from django.contrib import auth, messages
@@ -16,6 +18,15 @@ from .services import AIServiceError, generate_reply
 
 
 logger = logging.getLogger(__name__)
+
+FALLBACK_MESSAGES = {
+    "timeout": "The AI is taking longer than usual. Please try again in 30 seconds.",
+    "connection": "Unable to reach AI service. Please check back shortly.",
+    "http_error": "AI service returned an error. Please try again.",
+    "api_key": "AI service configuration error. Admin has been notified.",
+    "generic": "Something went wrong. Please try again.",
+    "warmup": "Service is warming up after inactivity. Please retry in 30 seconds.",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -151,12 +162,16 @@ def chat(request):
             response=response_text,
         )
     except AIServiceError as exc:
-        return json_error(str(exc), status=503)
+        logger.warning("AI service error: %s", exc)
+        return JsonResponse(
+            {"error": False, "response": str(exc), "fallback": True},
+            status=200,
+        )
     except Exception:
         logger.exception("Unexpected failure in /chat/ endpoint")
-        return json_error(
-            "Something went wrong while processing your message. Please try again.",
-            status=500,
+        return JsonResponse(
+            {"error": False, "response": FALLBACK_MESSAGES["generic"], "fallback": True},
+            status=200,
         )
 
     return JsonResponse(
@@ -238,5 +253,32 @@ def search_chats(request):
                 }
                 for item in chats
             ],
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Health check — no auth required (used by Render uptime monitors and UptimeRobot)
+# ---------------------------------------------------------------------------
+
+@require_GET
+def ping(request):
+    nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
+    secret_key = os.environ.get("SECRET_KEY", "")
+    allowed_hosts = os.environ.get("ALLOWED_HOSTS", "NOT SET")
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "service": "DubeyAI",
+            "timestamp": str(datetime.datetime.now()),
+            "env_check": {
+                "nvidia_key_loaded": bool(nvidia_key),
+                "secret_key_loaded": bool(secret_key)
+                and secret_key != "unsafe-dev-key-change-in-prod",
+                "allowed_hosts": allowed_hosts,
+                "debug_mode": os.environ.get("DEBUG", "False"),
+                "database": "sqlite",
+            },
         }
     )

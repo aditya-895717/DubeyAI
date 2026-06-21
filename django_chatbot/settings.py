@@ -42,17 +42,31 @@ def env_int(name, default):
 # Core security settings
 # ---------------------------------------------------------------------------
 
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-local-development-only")
+SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-dev-key-change-in-prod")
 DEBUG = env_bool("DEBUG", True)
 
-if not DEBUG and SECRET_KEY == "django-insecure-local-development-only":
+if not DEBUG and SECRET_KEY == "unsafe-dev-key-change-in-prod":
     raise RuntimeError(
         "SECRET_KEY must be set to a real value when DEBUG is False. "
         "Set it in your Render environment variables or .env file."
     )
 
-ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "127.0.0.1,localhost")
-CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
+# Fall back to ['*'] when ALLOWED_HOSTS env var is absent (safe for dev/test;
+# Render sets the var explicitly in production).
+_allowed_hosts_raw = os.getenv("ALLOWED_HOSTS", "").strip()
+ALLOWED_HOSTS = (
+    [h.strip() for h in _allowed_hosts_raw.split(",") if h.strip()]
+    if _allowed_hosts_raw
+    else ["*"]
+)
+
+# Fall back to Render wildcard + localhost when CSRF_TRUSTED_ORIGINS is absent.
+_csrf_raw = os.getenv("CSRF_TRUSTED_ORIGINS", "").strip()
+CSRF_TRUSTED_ORIGINS = (
+    [o.strip() for o in _csrf_raw.split(",") if o.strip()]
+    if _csrf_raw
+    else ["https://*.onrender.com", "http://localhost:8000"]
+)
 
 # Render sets RENDER_EXTERNAL_HOSTNAME automatically for every service
 RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "")

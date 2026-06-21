@@ -16,3 +16,6 @@ gunicorn==23.0.0
 
 # Static file serving (production + dev)
 whitenoise==6.9.0
+
+# Test coverage
+coverage==7.4.0
