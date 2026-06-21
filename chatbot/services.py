@@ -52,7 +52,7 @@ def generate_reply(message, history=()):
         base_url=settings.NVIDIA_BASE_URL,
         api_key=settings.NVIDIA_API_KEY,
         timeout=settings.NVIDIA_TIMEOUT_SECONDS,
-        max_retries=1,
+        max_retries=0,
     )
 
     try:

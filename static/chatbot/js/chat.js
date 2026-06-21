@@ -125,6 +125,7 @@
             throw new Error("The server returned an unexpected response.");
         }
         const data = await response.json();
+        if (data.fallback) return data;   // AI fallback — always 200, safe to display
         if (!response.ok || !data.success) {
             throw new Error(data.error || "The request could not be completed.");
         }
@@ -139,10 +140,22 @@
         const loadingRow = createLoadingMessage();
         scrollToBottom();
 
+        // Hard abort after 95 s — prevents the browser hanging indefinitely
+        // if Gunicorn is restarting or the network stalls past the server timeout.
+        const controller = new AbortController();
+        const hardTimeout = setTimeout(() => controller.abort(), 95000);
+
+        // Soft indicator after 5 s — reassures the user Nemotron is still working.
+        const slowTimer = setTimeout(() => {
+            const bubble = loadingRow.querySelector(".message-bubble");
+            if (bubble) bubble.textContent = "Nemotron is thinking deeply… this may take up to 60 seconds.";
+        }, 5000);
+
         try {
             const response = await fetch(form.dataset.chatUrl, {
                 method: "POST",
                 credentials: "same-origin",
+                signal: controller.signal,
                 headers: {
                     "Content-Type": "application/json",
                     "X-CSRFToken": csrfToken,
@@ -152,14 +165,25 @@
             });
             const data = await parseResponse(response);
             loadingRow.remove();
-            createMessage("assistant", data.chat.response, data.chat.id);
-            const userRows = conversation.querySelectorAll(".message-user");
-            userRows[userRows.length - 1].dataset.chatId = String(data.chat.id);
-            addHistoryItem(data.chat);
+            if (data.fallback) {
+                // AI error path — display the server's user-friendly message as a bot reply.
+                createMessage("assistant", data.response);
+            } else {
+                createMessage("assistant", data.chat.response, data.chat.id);
+                const userRows = conversation.querySelectorAll(".message-user");
+                userRows[userRows.length - 1].dataset.chatId = String(data.chat.id);
+                addHistoryItem(data.chat);
+            }
         } catch (error) {
             loadingRow.remove();
-            setAlert(error.message || "Unable to reach the server. Please try again.");
+            if (error.name === "AbortError") {
+                createMessage("assistant", "Response took too long. Please try a shorter question.");
+            } else {
+                setAlert(error.message || "Unable to reach the server. Please try again.");
+            }
         } finally {
+            clearTimeout(slowTimer);
+            clearTimeout(hardTimeout);
             setLoading(false);
             messageInput.focus();
             scrollToBottom();
