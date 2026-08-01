@@ -1,0 +1,21 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Users{% endblock %}
+{% block page_title %}Users{% endblock %}
+{% block content %}
+<div class="cp-card">
+    <table class="cp-table">
+        <thead><tr><th>Username</th><th>Email</th><th>Joined</th><th>Last Login</th><th></th></tr></thead>
+        <tbody>
+        {% for u in users %}
+            <tr>
+                <td>{{ u.username }}{% if u.is_superuser %} <span class="cp-badge active">Superuser</span>{% endif %}</td>
+                <td>{{ u.email|default:"—" }}</td>
+                <td>{{ u.date_joined|date:"Y-m-d H:i" }}</td>
+                <td>{{ u.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
+                <td><a class="cp-btn secondary" href="{% url 'control_panel:user_detail' u.pk %}">Login History</a></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

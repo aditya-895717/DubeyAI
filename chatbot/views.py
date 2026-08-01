@@ -9,8 +9,12 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
+
+from core.models import Command, Reminder
+from core.services import classify_intent
 
 from .forms import LoginForm, RegisterForm
 from .models import Chat
@@ -26,6 +30,18 @@ FALLBACK_MESSAGES = {
     "api_key": "AI service configuration error. Admin has been notified.",
     "generic": "Something went wrong. Please try again.",
     "warmup": "Service is warming up after inactivity. Please retry in 30 seconds.",
+}
+
+# Web-based fallback for open_app commands that work directly from a browser
+# tab without the local companion script (Phase 5).
+WEB_FALLBACK_URLS = {
+    "whatsapp": "https://wa.me/",
+    "facebook": "https://facebook.com/",
+    "youtube": "https://youtube.com/",
+    "instagram": "https://instagram.com/",
+    "twitter": "https://twitter.com/",
+    "gmail": "https://mail.google.com/",
+    "spotify": "https://open.spotify.com/",
 }
 
 
@@ -66,7 +82,11 @@ def login_view(request):
         user = form.get_user()
         auth.login(request, user)
         next_url = _safe_next(request)
-        return redirect(next_url or "chatbot")
+        if next_url:
+            return redirect(next_url)
+        if user.is_superuser:
+            return redirect("control_panel:dashboard")
+        return redirect("chatbot")
 
     return render(request, "login.html", {"form": form})
 
@@ -147,6 +167,47 @@ def chat(request):
             f"Message must be {max_len:,} characters or fewer."
         )
 
+    # Intent Engine pre-filter — open_app/set_alarm are handled here and never
+    # reach the AI at all. Ordinary messages fall straight through to the
+    # unchanged query path below (classify_intent returns "query" for them).
+    intent_result = classify_intent(message)
+    intent = intent_result.get("intent", "query")
+
+    if intent == "open_app":
+        app_name = intent_result["entities"].get("app", "")
+        command = Command.objects.create(
+            user=request.user,
+            command_type=Command.CommandType.OPEN_APP,
+            target=app_name,
+        )
+        return JsonResponse(
+            {
+                "success": True,
+                "intent": "open_app",
+                "command": {"id": command.id, "target": command.target},
+                "message": f"Command sent — will open {app_name} shortly.",
+                "web_fallback_url": WEB_FALLBACK_URLS.get(app_name),
+            }
+        )
+
+    if intent == "set_alarm":
+        target_time = intent_result["entities"].get("target_time")
+        if target_time is None:
+            return json_error(
+                "I couldn't understand the time for that reminder. "
+                "Try something like 'remind me tomorrow at 9am'."
+            )
+        reminder = Reminder.objects.create(user=request.user, raw_text=message, target_time=target_time)
+        local_time = timezone.localtime(reminder.target_time)
+        return JsonResponse(
+            {
+                "success": True,
+                "intent": "set_alarm",
+                "reminder": {"id": reminder.id, "target_time": reminder.target_time.isoformat()},
+                "message": f"Reminder set for {local_time:%A, %b %d at %I:%M %p}.",
+            }
+        )
+
     # Build conversation history (oldest → newest)
     history = list(
         Chat.objects.filter(user=request.user)
@@ -177,6 +238,7 @@ def chat(request):
     return JsonResponse(
         {
             "success": True,
+            "intent": "query",
             "chat": {
                 "id": chat_record.id,
                 "message": chat_record.message,

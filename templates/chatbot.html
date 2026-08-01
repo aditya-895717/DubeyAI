@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}AI Workspace | DubeyAI{% endblock %}
+{% block title %}{{ content.chat_page_title|default:"AI Workspace | DubeyAI" }}{% endblock %}
 {% block body_class %}app-body{% endblock %}
 
 {% block body %}
@@ -10,9 +10,13 @@
 
     <aside class="app-sidebar" id="appSidebar" aria-label="Chat history">
         <div class="brand">
-            <span class="brand-mark" aria-hidden="true">D</span>
+            {% if site_settings.logo %}
+                <img class="brand-mark" src="{{ site_settings.logo.url }}" alt="{{ site_settings.site_name }}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;">
+            {% else %}
+                <span class="brand-mark" aria-hidden="true">{{ site_settings.site_name|default:"DubeyAI"|first|upper }}</span>
+            {% endif %}
             <span>
-                <strong>DubeyAI</strong>
+                <strong>{{ site_settings.site_name|default:"DubeyAI" }}</strong>
                 <small>Intelligence workspace</small>
             </span>
         </div>
@@ -62,6 +66,11 @@
                     <strong>{{ request.user.username }}</strong>
                     <small>Secure workspace</small>
                 </span>
+                {% if request.user.is_superuser %}
+                <a class="icon-button" href="{% url 'control_panel:dashboard' %}" aria-label="Control panel" title="Control panel">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M4 10h16M10 4v16"/></svg>
+                </a>
+                {% endif %}
                 <form method="post" action="{% url 'logout' %}">
                     {% csrf_token %}
                     <button class="icon-button" type="submit" aria-label="Sign out" title="Sign out">
@@ -91,18 +100,25 @@
                     <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
                     Private session
                 </span>
+                <button class="icon-button" id="enableNotificationsButton" type="button" title="Enable notifications" aria-label="Enable notifications" data-vapid-public-key="{{ vapid_public_key }}">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </button>
                 <button class="icon-button" id="clearHistoryButton" type="button" title="Clear history" aria-label="Clear chat history">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/></svg>
                 </button>
             </div>
         </header>
 
+        <div class="alert app-alert" id="offlineBanner" role="status" hidden>
+            You're offline — messages will be queued and sent once you're back online.
+        </div>
+
         <section class="messages-area" id="messagesArea" aria-live="polite">
             <div class="welcome-panel" id="welcomePanel">
                 <div class="welcome-mark" aria-hidden="true">D</div>
-                <p class="eyebrow">ENTERPRISE AI ASSISTANT</p>
-                <h1>How can I help you move forward?</h1>
-                <p>Ask for analysis, writing, strategy, code, or a clear second opinion. Your conversation stays tied to your private account.</p>
+                <p class="eyebrow">{{ content.chat_welcome_eyebrow|default:"ENTERPRISE AI ASSISTANT" }}</p>
+                <h1>{{ content.chat_welcome_heading|default:"How can I help you move forward?" }}</h1>
+                <p>{{ content.chat_welcome_subtext|default:"Ask for analysis, writing, strategy, code, or a clear second opinion. Your conversation stays tied to your private account." }}</p>
                 <div class="prompt-grid">
                     <button class="prompt-card" type="button" data-prompt="Create a concise project plan with milestones and risks.">
                         <span>Plan a project</span>

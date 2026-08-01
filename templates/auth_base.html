@@ -7,9 +7,13 @@
     <!-- Left showcase panel -->
     <section class="auth-showcase">
         <a class="auth-brand" href="{% url 'login' %}">
-            <span class="brand-mark">D</span>
+            {% if site_settings.logo %}
+                <img class="brand-mark" src="{{ site_settings.logo.url }}" alt="{{ site_settings.site_name }}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;">
+            {% else %}
+                <span class="brand-mark">{{ site_settings.site_name|default:"DubeyAI"|first|upper }}</span>
+            {% endif %}
             <span>
-                <strong>DubeyAI</strong>
+                <strong>{{ site_settings.site_name|default:"DubeyAI" }}</strong>
                 <small>Intelligence workspace</small>
             </span>
         </a>
@@ -25,7 +29,7 @@
             </div>
         </div>
 
-        <p class="auth-copyright">&copy; {% now "Y" %} DubeyAI. Built for better decisions.</p>
+        <p class="auth-copyright">&copy; {% now "Y" %} {{ site_settings.site_name|default:"DubeyAI" }}. Built for better decisions.</p>
     </section>
 
     <!-- Right auth card -->

@@ -11,6 +11,18 @@ psycopg[binary]==3.2.9
 # NVIDIA / OpenAI-compatible API client
 openai==1.82.1
 
+# Image uploads (SiteSettings.logo)
+Pillow==11.1.0
+
+# Encrypted model fields (AIProvider.api_key)
+cryptography==50.0.0
+
+# Natural-language time parsing for reminders (Intent Engine)
+dateparser==1.2.0
+
+# Web Push notifications (VAPID) — PWA push support
+pywebpush==2.3.0
+
 # Production server
 gunicorn==23.0.0
 

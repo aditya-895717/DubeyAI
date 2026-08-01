@@ -1,0 +1,9 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Access Denied{% endblock %}
+{% block page_title %}Access Denied{% endblock %}
+{% block content %}
+<div class="cp-card">
+    <p>Your account does not have superuser privileges required to access the control panel.</p>
+    <a class="cp-btn secondary" href="{% url 'chatbot' %}">Return home</a>
+</div>
+{% endblock %}

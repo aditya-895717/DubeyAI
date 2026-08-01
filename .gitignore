@@ -6,9 +6,15 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 staticfiles/
+media/
 .pytest_cache/
 .coverage
 htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+.vercel
+.env*
+!.env.example
+!companion_script/.env.example

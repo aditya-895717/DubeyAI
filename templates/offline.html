@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Offline · {{ site_settings.site_name|default:"DubeyAI" }}</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: {{ site_settings.primary_color }};
+            color: #f6f4ef;
+            font-family: {{ site_settings.font_family }}, system-ui, sans-serif;
+            text-align: center;
+            padding: 24px;
+        }
+        .offline-card { max-width: 420px; }
+        .offline-mark {
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            background: {{ site_settings.accent_color }};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0 auto 20px;
+        }
+        h1 { font-size: 1.3rem; margin: 0 0 10px; }
+        p { color: #a0a0a0; line-height: 1.5; }
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            background: {{ site_settings.accent_color }};
+            color: #fff;
+            font: inherit;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-card">
+        <div class="offline-mark">{{ site_settings.site_name|default:"DubeyAI"|first|upper }}</div>
+        <h1>You're offline</h1>
+        <p>{{ site_settings.site_name|default:"DubeyAI" }} can't reach the network right now. Check your connection and try again — anything you were doing will still be here.</p>
+        <button onclick="location.reload()">Retry</button>
+    </div>
+</body>
+</html>

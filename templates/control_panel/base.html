@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Control Panel{% endblock %} · {{ site_settings.site_name }}</title>
+    <style>
+        :root {
+            --cp-primary: {{ site_settings.primary_color }};
+            --cp-secondary: {{ site_settings.secondary_color }};
+            --cp-accent: {{ site_settings.accent_color }};
+            --cp-font: {{ site_settings.font_family }};
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: var(--cp-font);
+            background: var(--cp-primary);
+            color: #e8e8e8;
+            display: flex;
+            min-height: 100vh;
+        }
+        a { color: inherit; }
+        .cp-sidebar {
+            width: 230px;
+            flex-shrink: 0;
+            background: var(--cp-secondary);
+            padding: 24px 0;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .cp-brand {
+            padding: 0 20px 20px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            margin-bottom: 12px;
+        }
+        .cp-brand span { color: var(--cp-accent); display: block; font-size: .75rem; font-weight: 400; opacity: .8; }
+        .cp-nav a {
+            display: block;
+            padding: 10px 20px;
+            text-decoration: none;
+            color: #b8b8b8;
+            font-size: 0.92rem;
+            border-left: 3px solid transparent;
+        }
+        .cp-nav a.active, .cp-nav a:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            border-left-color: var(--cp-accent);
+        }
+        .cp-main { flex: 1; padding: 32px 40px; max-width: 1100px; }
+        .cp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .cp-header h1 { font-size: 1.4rem; margin: 0; }
+        .cp-card { background: var(--cp-secondary); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.06); }
+        .cp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+        .cp-stat-value { font-size: 1.8rem; font-weight: 700; }
+        .cp-stat-label { color: #999; font-size: 0.85rem; text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
+        table.cp-table { width: 100%; border-collapse: collapse; }
+        table.cp-table th, table.cp-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); font-size: .9rem; }
+        table.cp-table th { color: #999; font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+        .cp-btn { display: inline-block; padding: 8px 14px; border-radius: 6px; background: var(--cp-accent); color: #fff; text-decoration: none; border: none; cursor: pointer; font-size: .85rem; font-family: inherit; }
+        .cp-btn.secondary { background: transparent; border: 1px solid rgba(255, 255, 255, 0.2); }
+        .cp-btn.danger { background: #b91c1c; }
+        .cp-badge { padding: 2px 8px; border-radius: 999px; font-size: .75rem; }
+        .cp-badge.active { background: rgba(34, 197, 94, .15); color: #22c55e; }
+        .cp-badge.inactive { background: rgba(255, 255, 255, .08); color: #999; }
+        .cp-form label { display: block; margin: 14px 0 6px; font-size: .85rem; color: #ccc; }
+        .cp-form .help-text { font-size: .78rem; color: #888; margin-top: 4px; }
+        .cp-input, textarea.cp-input, select.cp-input { width: 100%; padding: 9px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .15); background: #0d0d0d; color: #fff; font-family: inherit; font-size: .9rem; }
+        input[type="color"].cp-input { padding: 3px; height: 42px; }
+        .cp-messages { margin-bottom: 16px; }
+        .cp-messages .msg { padding: 10px 14px; border-radius: 6px; margin-bottom: 8px; font-size: .85rem; }
+        .cp-messages .msg.success { background: rgba(34, 197, 94, .12); color: #22c55e; }
+        .cp-messages .msg.error, .msg.error { background: rgba(239, 68, 68, .12); color: #ef4444; padding: 6px 10px; border-radius: 6px; margin-top: 4px; font-size: .8rem; }
+        .cp-color-preview { display: inline-block; width: 18px; height: 18px; border-radius: 4px; vertical-align: middle; margin-right: 6px; border: 1px solid rgba(255, 255, 255, .2); }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <aside class="cp-sidebar">
+        <div class="cp-brand">{{ site_settings.site_name }}<span>Control Panel</span></div>
+        <nav class="cp-nav">
+            <a href="{% url 'control_panel:dashboard' %}" class="{% if active_nav == 'dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="{% url 'control_panel:site_settings' %}" class="{% if active_nav == 'settings' %}active{% endif %}">Site Settings</a>
+            <a href="{% url 'control_panel:content_list' %}" class="{% if active_nav == 'content' %}active{% endif %}">Content</a>
+            <a href="{% url 'control_panel:ai_provider_list' %}" class="{% if active_nav == 'ai_providers' %}active{% endif %}">AI Providers</a>
+            <a href="{% url 'control_panel:user_list' %}" class="{% if active_nav == 'users' %}active{% endif %}">Users</a>
+            <a href="{% url 'chatbot' %}" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 20px;">&larr; Back to Chat</a>
+        </nav>
+    </aside>
+    <main class="cp-main">
+        <div class="cp-header">
+            <h1>{% block page_title %}{% endblock %}</h1>
+        </div>
+        {% if messages %}
+        <div class="cp-messages">
+            {% for message in messages %}
+            <div class="msg {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

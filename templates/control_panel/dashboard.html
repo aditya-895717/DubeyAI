@@ -1,0 +1,27 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+<div class="cp-stats">
+    <div class="cp-card">
+        <div class="cp-stat-value">{{ total_users }}</div>
+        <div class="cp-stat-label">Registered Users</div>
+    </div>
+    <div class="cp-card">
+        <div class="cp-stat-value">{{ total_chat_messages }}</div>
+        <div class="cp-stat-label">Chat Messages</div>
+    </div>
+    <div class="cp-card">
+        <div class="cp-stat-value">{{ pending_reminders }}</div>
+        <div class="cp-stat-label">Pending Reminders</div>
+    </div>
+    <div class="cp-card">
+        <div class="cp-stat-value">{{ pending_commands }}</div>
+        <div class="cp-stat-label">Pending Commands</div>
+    </div>
+    <div class="cp-card">
+        <div class="cp-stat-value">{{ active_provider.name|default:"None" }}</div>
+        <div class="cp-stat-label">Active AI Provider</div>
+    </div>
+</div>
+{% endblock %}

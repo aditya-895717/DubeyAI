@@ -1,0 +1,42 @@
+{% extends "control_panel/base.html" %}
+{% block title %}AI Providers{% endblock %}
+{% block page_title %}AI Providers{% endblock %}
+{% block content %}
+<a class="cp-btn" href="{% url 'control_panel:ai_provider_create' %}">+ New Provider</a>
+<div class="cp-card" style="margin-top: 16px;">
+    <table class="cp-table">
+        <thead><tr><th>Name</th><th>Model</th><th>Endpoint</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for provider in providers %}
+            <tr>
+                <td>{{ provider.name }}</td>
+                <td>{{ provider.model_name }}</td>
+                <td>{{ provider.endpoint_url }}</td>
+                <td>
+                    {% if provider.is_active %}
+                        <span class="cp-badge active">Active</span>
+                    {% else %}
+                        <span class="cp-badge inactive">Inactive</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not provider.is_active %}
+                    <form method="post" action="{% url 'control_panel:ai_provider_activate' provider.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button class="cp-btn" type="submit">Set Active</button>
+                    </form>
+                    {% endif %}
+                    <a class="cp-btn secondary" href="{% url 'control_panel:ai_provider_edit' provider.pk %}">Edit</a>
+                    <form method="post" action="{% url 'control_panel:ai_provider_delete' provider.pk %}" style="display: inline;" onsubmit="return confirm('Delete this AI provider?');">
+                        {% csrf_token %}
+                        <button class="cp-btn danger" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No AI providers configured yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

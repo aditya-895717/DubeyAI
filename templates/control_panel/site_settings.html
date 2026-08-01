@@ -1,0 +1,63 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Site Settings{% endblock %}
+{% block page_title %}Site Settings{% endblock %}
+{% block content %}
+<div class="cp-card">
+    <form method="post" enctype="multipart/form-data" class="cp-form">
+        {% csrf_token %}
+        {% for field in form %}
+        <div>
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<div class="msg error">{{ field.errors|join:", " }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        {% if settings_obj.logo %}
+        <p style="margin-top: 10px; font-size: .8rem; color: #999;">
+            Current logo: <a href="{{ settings_obj.logo.url }}" target="_blank">{{ settings_obj.logo.name }}</a>
+        </p>
+        {% endif %}
+        <button class="cp-btn" style="margin-top: 18px;" type="submit">Save Settings</button>
+    </form>
+</div>
+
+<div class="cp-card">
+    <h3 style="margin-top: 0;">Live Preview</h3>
+    <div style="display: flex; gap: 16px; align-items: center;">
+        <span><span id="preview-primary" class="cp-color-preview" style="background: {{ settings_obj.primary_color }};"></span>Primary</span>
+        <span><span id="preview-secondary" class="cp-color-preview" style="background: {{ settings_obj.secondary_color }};"></span>Secondary</span>
+        <span><span id="preview-accent" class="cp-color-preview" style="background: {{ settings_obj.accent_color }};"></span>Accent</span>
+    </div>
+    <p id="preview-text" style="font-family: {{ settings_obj.font_family }}; margin-top: 14px; font-size: 1.05rem;">
+        The quick brown fox jumps over the lazy dog — {{ settings_obj.site_name }}
+    </p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var colorMap = {
+            'id_primary_color': 'preview-primary',
+            'id_secondary_color': 'preview-secondary',
+            'id_accent_color': 'preview-accent'
+        };
+        Object.keys(colorMap).forEach(function (inputId) {
+            var input = document.getElementById(inputId);
+            var swatch = document.getElementById(colorMap[inputId]);
+            if (input && swatch) {
+                input.addEventListener('input', function () {
+                    swatch.style.background = input.value;
+                });
+            }
+        });
+        var fontInput = document.getElementById('id_font_family');
+        var previewText = document.getElementById('preview-text');
+        if (fontInput && previewText) {
+            fontInput.addEventListener('input', function () {
+                previewText.style.fontFamily = fontInput.value;
+            });
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Content{% endblock %}
+{% block page_title %}Content Blocks{% endblock %}
+{% block content %}
+<a class="cp-btn" href="{% url 'control_panel:content_create' %}">+ New Content Block</a>
+<div class="cp-card" style="margin-top: 16px;">
+    <table class="cp-table">
+        <thead><tr><th>Key</th><th>Value</th><th>Updated</th><th></th></tr></thead>
+        <tbody>
+        {% for block in blocks %}
+            <tr>
+                <td><code>{{ block.key }}</code></td>
+                <td>{{ block.value|truncatechars:80 }}</td>
+                <td>{{ block.updated_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <a class="cp-btn secondary" href="{% url 'control_panel:content_edit' block.pk %}">Edit</a>
+                    <form method="post" action="{% url 'control_panel:content_delete' block.pk %}" style="display: inline;" onsubmit="return confirm('Delete this content block?');">
+                        {% csrf_token %}
+                        <button class="cp-btn danger" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="4">No content blocks yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

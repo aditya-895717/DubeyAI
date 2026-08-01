@@ -17,7 +17,10 @@
     const clearHistoryButton = document.getElementById("clearHistoryButton");
     const mobileMenuButton = document.getElementById("mobileMenuButton");
     const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+    const enableNotificationsButton = document.getElementById("enableNotificationsButton");
+    const offlineBanner = document.getElementById("offlineBanner");
     const maxLength = Number(form.dataset.maxLength || 12000);
+    const OFFLINE_QUEUE_KEY = "dubeyai_offline_queue";
     let isLoading = false;
 
     const csrfToken = form.querySelector("[name=csrfmiddlewaretoken]").value;
@@ -132,6 +135,57 @@
         return data;
     }
 
+    // ------------------------------------------------------------------
+    // Offline queueing — messages sent while offline are queued in
+    // localStorage, shown locally with a "will send once back online" note,
+    // and flushed automatically when connectivity returns.
+    // ------------------------------------------------------------------
+
+    function getOfflineQueue() {
+        try {
+            return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
+        } catch (err) {
+            return [];
+        }
+    }
+
+    function setOfflineQueue(queue) {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    }
+
+    function updateOfflineBanner() {
+        if (offlineBanner) offlineBanner.hidden = navigator.onLine;
+    }
+
+    function queueMessageOffline(message) {
+        const queue = getOfflineQueue();
+        queue.push(message);
+        setOfflineQueue(queue);
+
+        welcomePanel.hidden = true;
+        createMessage("user", message);
+        createMessage("assistant", "You're offline — this message will send once you're back online.");
+        scrollToBottom();
+        messageInput.value = "";
+        resizeInput();
+    }
+
+    let isFlushingQueue = false;
+
+    async function flushOfflineQueue() {
+        if (isFlushingQueue || !navigator.onLine) return;
+        const queue = getOfflineQueue();
+        if (!queue.length) return;
+
+        isFlushingQueue = true;
+        setOfflineQueue([]);
+        for (const queuedMessage of queue) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendMessage(queuedMessage);
+        }
+        isFlushingQueue = false;
+    }
+
     async function sendMessage(message) {
         setLoading(true);
         setAlert("");
@@ -168,6 +222,17 @@
             if (data.fallback) {
                 // AI error path — display the server's user-friendly message as a bot reply.
                 createMessage("assistant", data.response);
+            } else if (data.intent === "open_app") {
+                // Command intent — no AI call, no chat history entry. Confirm, then
+                // also attempt the web-based fallback (e.g. wa.me) in a new tab.
+                createMessage("assistant", data.message);
+                if (data.web_fallback_url) {
+                    window.open(data.web_fallback_url, "_blank", "noopener");
+                }
+            } else if (data.intent === "set_alarm") {
+                // Reminder intent — confirmation only, handled locally by the
+                // companion script (Phase 5), not added to chat history.
+                createMessage("assistant", data.message);
             } else {
                 createMessage("assistant", data.chat.response, data.chat.id);
                 const userRows = conversation.querySelectorAll(".message-user");
@@ -203,10 +268,42 @@
             setAlert(`Message must be ${maxLength.toLocaleString()} characters or fewer.`);
             return;
         }
+        if (!navigator.onLine) {
+            queueMessageOffline(message);
+            return;
+        }
         messageInput.value = "";
         resizeInput();
         sendMessage(message);
     });
+
+    window.addEventListener("online", () => {
+        updateOfflineBanner();
+        flushOfflineQueue();
+    });
+    window.addEventListener("offline", updateOfflineBanner);
+    updateOfflineBanner();
+    flushOfflineQueue();
+
+    if (navigator.serviceWorker) {
+        navigator.serviceWorker.addEventListener("message", (event) => {
+            if (event.data && event.data.type === "flush-offline-queue") flushOfflineQueue();
+        });
+    }
+
+    if (enableNotificationsButton && window.DubeyAIPush) {
+        enableNotificationsButton.addEventListener("click", async () => {
+            const vapidKey = enableNotificationsButton.dataset.vapidPublicKey;
+            if (!vapidKey) {
+                setAlert("Push notifications aren't configured yet.");
+                return;
+            }
+            enableNotificationsButton.disabled = true;
+            const result = await window.DubeyAIPush.subscribe(vapidKey, csrfToken);
+            enableNotificationsButton.disabled = false;
+            setAlert(result.success ? "Notifications enabled." : result.reason || "Could not enable notifications.");
+        });
+    }
 
     messageInput.addEventListener("input", resizeInput);
     messageInput.addEventListener("keydown", (event) => {

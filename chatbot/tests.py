@@ -31,6 +31,7 @@ from django.urls import reverse
 from chatbot.models import Chat
 from chatbot.services import AIServiceError, strip_reasoning
 from chatbot.views import FALLBACK_MESSAGES
+from core.models import Command, Reminder
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +438,26 @@ class AuthTests(TestCase):
         r = Client().get(reverse("chatbot"))
         self.assertIn(r.status_code, [301, 302])
 
+    # C23. Superuser login lands on the control panel dashboard, not chat
+    def test_c23_superuser_login_redirects_to_control_panel(self):
+        User.objects.create_superuser("superadmin", "super@example.com", "SuperPass123!")
+        r = Client().post(reverse("login"), {"username": "superadmin", "password": "SuperPass123!"})
+        self.assertRedirects(r, reverse("control_panel:dashboard"))
+
+    # C24. Regular user login still lands on chat, unaffected by C23
+    def test_c24_regular_user_login_still_redirects_to_chat(self):
+        r = Client().post(reverse("login"), {"username": "testuser", "password": "TestPass123!"})
+        self.assertRedirects(r, reverse("chatbot"))
+
+    # C25. next= still takes priority over the superuser default redirect
+    def test_c25_next_param_overrides_superuser_default_redirect(self):
+        User.objects.create_superuser("superadmin2", "super2@example.com", "SuperPass123!")
+        r = Client().post(
+            f"{reverse('login')}?next={reverse('control_panel:site_settings')}",
+            {"username": "superadmin2", "password": "SuperPass123!"},
+        )
+        self.assertRedirects(r, reverse("control_panel:site_settings"))
+
 
 # ===========================================================================
 # D: Chat View Tests (comprehensive)
@@ -721,6 +742,86 @@ class EnvVariableTests(TestCase):
         self.assertEqual(settings.NVIDIA_TIMEOUT_SECONDS, 90)
         self.assertEqual(settings.NVIDIA_MAX_TOKENS, 4096)
 
+    # F15. The production custom domain is always allowed, regardless of
+    # whether ALLOWED_HOSTS is set on the host (found missing on live Vercel).
+    def test_f15_production_host_always_allowed(self):
+        self.assertIn("dubeyai.adityadubey.co.in", settings.ALLOWED_HOSTS)
+
+    # F16. ...and always CSRF-trusted, so POSTs (login, control panel, chat)
+    # never 403 on the production domain regardless of env var configuration.
+    def test_f16_production_origin_always_csrf_trusted(self):
+        self.assertIn("https://dubeyai.adityadubey.co.in", settings.CSRF_TRUSTED_ORIGINS)
+
+    # F17. ALLOWED_HOSTS must never silently fall back to a wildcard.
+    def test_f17_allowed_hosts_never_wildcard(self):
+        self.assertNotIn("*", settings.ALLOWED_HOSTS)
+
+    # F18. An unset DEBUG-style env var must default closed (False), not
+    # open — this is the exact mechanism that left DEBUG=True live in
+    # production because nothing had set it explicitly on the host.
+    def test_f18_env_bool_defaults_closed(self):
+        from dubeyai.settings import env_bool
+
+        self.assertFalse(env_bool("__DUBEYAI_TEST_DEFINITELY_UNSET__", False))
+
+    # F19. A production deploy with DEBUG=False and FIELD_ENCRYPTION_KEY
+    # explicitly set must NOT crash, regardless of what value it happens to
+    # be — the old (buggy) guard compared by value equality against the dev
+    # fallback, which wrongly rejected a real deployment whose configured key
+    # happened to match it. Only a genuinely *unset* var should raise. Uses a
+    # freshly generated key here deliberately, not any value that has ever
+    # protected real data — this repo is public, so nothing in it should ever
+    # double as an actual secret. Spawns a real subprocess since this is a
+    # module-import-time check, not something override_settings can exercise.
+    def test_f19_explicit_field_encryption_key_does_not_crash(self):
+        import subprocess
+        import sys
+
+        from cryptography.fernet import Fernet
+
+        env = {
+            **os.environ,
+            "DEBUG": "False",
+            "SECRET_KEY": "a-real-secret-key-for-this-test",
+            "FIELD_ENCRYPTION_KEY": Fernet.generate_key().decode(),
+        }
+        result = subprocess.run(
+            [sys.executable, "manage.py", "check"],
+            cwd=str(settings.BASE_DIR),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    # F20. ...but a genuinely unset FIELD_ENCRYPTION_KEY must still raise
+    # when DEBUG=False, so forgetting to configure it in a new environment
+    # is caught loudly rather than silently using the shared dev key.
+    def test_f20_field_encryption_key_truly_unset_raises(self):
+        import subprocess
+        import sys
+
+        # An empty string (not an absent key) is required here: settings.py
+        # calls load_dotenv(), which by default never overrides a key already
+        # present in the environment — even an empty one — but WILL fill in
+        # a key that's genuinely absent from the subprocess's env using the
+        # real value still sitting in the on-disk .env file. Deleting the key
+        # from `env` entirely would silently let dotenv restore it.
+        env = {**os.environ, "FIELD_ENCRYPTION_KEY": ""}
+        env["DEBUG"] = "False"
+        env["SECRET_KEY"] = "a-real-secret-key-for-this-test"
+        result = subprocess.run(
+            [sys.executable, "manage.py", "check"],
+            cwd=str(settings.BASE_DIR),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FIELD_ENCRYPTION_KEY", result.stderr)
+
 
 # ===========================================================================
 # G: Database Tests
@@ -996,7 +1097,7 @@ class RenderDeploymentTests(TestCase):
 
     # K1. WSGI application object loads without error
     def test_k1_wsgi_application_loads(self):
-        from django_chatbot.wsgi import application
+        from dubeyai.wsgi import application
         self.assertIsNotNone(application)
 
     # K2. PORT env var is integer-castable (Gunicorn --bind requirement)
@@ -1022,7 +1123,7 @@ class RenderDeploymentTests(TestCase):
     # K5. Application module reloads cleanly (simulates post-cold-boot import)
     def test_k5_app_reloads_cleanly(self):
         import importlib
-        import django_chatbot.wsgi as wsgi_module
+        import dubeyai.wsgi as wsgi_module
         importlib.reload(wsgi_module)
         self.assertIsNotNone(wsgi_module.application)
 
@@ -1043,3 +1144,77 @@ class RenderDeploymentTests(TestCase):
         self.assertEqual(c.get(reverse("login")).status_code, 200)
         User.objects.create_user(username="coldboot", password="ColdBoot123!")
         self.assertTrue(c.login(username="coldboot", password="ColdBoot123!"))
+
+
+# ===========================================================================
+# L: Intent Engine Integration Tests (Phase 3 — additive layering)
+#
+# The Intent Engine sits in front of the existing /chat/ endpoint. Ordinary
+# messages (everything in sections A-K above) fall straight through to the
+# unchanged query path, which is why those tests needed no changes beyond the
+# dubeyai.wsgi import fix. These tests cover the two new branches it adds.
+# ===========================================================================
+
+class IntentPreFilterTests(TestCase):
+    def setUp(self):
+        self.client, self.user = auth_client("intentuser", "IntentPass123!")
+
+    # L1. A known app keyword creates a Command, not a Chat record
+    def test_l1_open_app_known_keyword_creates_command_not_chat(self):
+        r = chat_post(self.client, "open whatsapp")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["intent"], "open_app")
+        self.assertEqual(data["command"]["target"], "whatsapp")
+        self.assertEqual(data["web_fallback_url"], "https://wa.me/")
+        self.assertFalse(Chat.objects.filter(user=self.user, message="open whatsapp").exists())
+
+    # L2. The Command is persisted as pending
+    def test_l2_open_app_creates_pending_command_record(self):
+        chat_post(self.client, "open whatsapp")
+        command = Command.objects.get(user=self.user, target="whatsapp")
+        self.assertEqual(command.command_type, Command.CommandType.OPEN_APP)
+        self.assertEqual(command.status, Command.Status.PENDING)
+
+    # L3. Apps with no configured web fallback still work, just without a URL
+    def test_l3_open_app_without_web_fallback_url_is_none(self):
+        r = chat_post(self.client, "launch notepad please")
+        data = r.json()
+        self.assertEqual(data["intent"], "open_app")
+        self.assertIsNone(data["web_fallback_url"])
+
+    # L4. A parseable Hinglish alarm phrase creates a pending Reminder
+    def test_l4_set_alarm_creates_pending_reminder(self):
+        r = chat_post(self.client, "kal 9 baje uthana")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["intent"], "set_alarm")
+        reminder = Reminder.objects.get(user=self.user, raw_text="kal 9 baje uthana")
+        self.assertEqual(reminder.status, Reminder.Status.PENDING)
+        self.assertEqual(data["reminder"]["id"], reminder.id)
+
+    # L5. Alarm keyword present but no extractable time falls back to query
+    @patch("chatbot.views.generate_reply", return_value="I don't have enough context for that.")
+    def test_l5_alarm_keyword_without_parseable_time_falls_back_to_query(self, _mock):
+        r = chat_post(self.client, "remind me about that thing we discussed")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["intent"], "query")
+        self.assertFalse(Reminder.objects.filter(user=self.user).exists())
+
+    # L6. Ordinary queries are completely unaffected by the intent engine
+    @patch("chatbot.views.generate_reply", return_value="Bonjour!")
+    def test_l6_ordinary_query_is_unaffected_by_intent_engine(self, _mock):
+        r = chat_post(self.client, "Hello")
+        data = r.json()
+        self.assertEqual(data["intent"], "query")
+        self.assertIn("chat", data)
+        self.assertTrue(Chat.objects.filter(user=self.user, message="Hello").exists())
+
+    # L7. Command/Reminder confirmations never leak into chat history
+    def test_l7_command_and_reminder_are_not_visible_in_chat_history(self):
+        chat_post(self.client, "open whatsapp")
+        chat_post(self.client, "kal 9 baje uthana")
+        history = self.client.get(reverse("chat_history")).json()["chats"]
+        self.assertEqual(history, [])
