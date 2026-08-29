@@ -13,6 +13,7 @@ from core.services import (
     AIProviderError,
     AIProviderService,
     classify_intent,
+    get_active_ai_client,
     parse_target_time,
 )
 

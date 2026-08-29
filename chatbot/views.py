@@ -1,9 +1,11 @@
 import datetime
+import io
 import json
 import logging
 import os
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.contrib import auth, messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
@@ -13,12 +15,24 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from core.models import Command, Reminder
+from core import storage as cloudinary_storage
+from core.models import Command, Reminder, VoiceCommand
 from core.services import classify_intent
 
+from .documents import (
+    ALLOWED_EXTENSIONS,
+    MAX_UPLOAD_BYTES,
+    DocumentExtractionError,
+    extract_text,
+    validate_upload,
+)
 from .forms import LoginForm, RegisterForm
-from .models import Chat
+from .models import Chat, UploadedDocument
 from .services import AIServiceError, generate_reply
+
+# How many attached documents ride along with a single chat message. Extracted
+# text is already capped per document, so this bounds total injected context.
+MAX_DOCUMENTS_PER_MESSAGE = 3
 
 
 logger = logging.getLogger(__name__)
@@ -136,6 +150,12 @@ def chatbot(request):
             "total_chats": chats.count(),
             "chat_endpoint": "/chat/",
             "max_message_length": settings.CHAT_MAX_MESSAGE_LENGTH,
+            "upload_accept": ",".join(sorted(ALLOWED_EXTENSIONS)),
+            "upload_max_bytes": MAX_UPLOAD_BYTES,
+            "active_documents": UploadedDocument.objects.filter(
+                user=request.user,
+                is_active=True,
+            ).order_by("-uploaded_at")[:MAX_DOCUMENTS_PER_MESSAGE],
         },
     )
 
@@ -215,8 +235,19 @@ def chat(request):
     )
     history.reverse()
 
+    # Documents the user attached earlier in this conversation. They stay active
+    # until "New conversation" clears them, so follow-up questions about the same
+    # file keep working without re-uploading it.
+    documents = list(
+        UploadedDocument.objects.filter(
+            user=request.user,
+            is_active=True,
+            status=UploadedDocument.Status.READY,
+        ).order_by("-uploaded_at")[:MAX_DOCUMENTS_PER_MESSAGE]
+    )
+
     try:
-        response_text = generate_reply(message, history)
+        response_text = generate_reply(message, history, documents)
         chat_record = Chat.objects.create(
             user=request.user,
             message=message,
@@ -245,6 +276,199 @@ def chat(request):
                 "response": chat_record.response,
                 "created_at": chat_record.created_at.isoformat(),
             },
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# File upload / document API views
+# ---------------------------------------------------------------------------
+
+def _document_payload(document):
+    return {
+        "id": document.id,
+        "filename": document.filename,
+        "status": document.status,
+        "characters": len(document.extracted_text),
+        "error": document.error_message,
+        "uploaded_at": document.uploaded_at.isoformat(),
+        "url": document.download_url,
+        "storage": "cloudinary" if document.stored_in_cloudinary else "local",
+    }
+
+
+def _fail_document(document, message):
+    """Mark a document failed and return the error response.
+
+    The stored binary is deliberately KEPT: the upload itself succeeded, and
+    the asset is what makes the extraction failure diagnosable. The row is
+    marked failed so it is never injected as AI context.
+    """
+    document.status = UploadedDocument.Status.FAILED
+    document.error_message = message[:300]
+    document.save(update_fields=["status", "error_message"])
+    return JsonResponse(
+        {"success": False, "error": message, "document": _document_payload(document)},
+        status=400,
+    )
+
+
+@login_required
+@require_POST
+def upload_document(request):
+    """Accept one file, store the binary, extract its text, and keep it as context.
+
+    Flow:
+        browser -> validate -> Cloudinary (production) -> extract from memory
+        -> extracted text + Cloudinary metadata -> PostgreSQL
+
+    The binary is read into memory ONCE and both the upload and the extractor
+    read from that buffer. Nothing depends on a file still existing on disk
+    after the request, which is what makes this correct on Vercel.
+
+    Extraction runs inline: pdfplumber/python-docx on a <=15 MB file is fast
+    enough that a background worker would add more moving parts than it saves,
+    and the project has no task queue.
+    """
+    uploaded_file = request.FILES.get("file")
+    if uploaded_file is None:
+        return json_error("No file was received.")
+
+    try:
+        extension = validate_upload(uploaded_file)
+    except DocumentExtractionError as exc:
+        return json_error(str(exc))
+
+    filename = uploaded_file.name[:255]
+
+    # Single in-memory copy, reused for both storage and extraction. The 15 MB
+    # ceiling enforced by validate_upload is what keeps this bounded.
+    try:
+        uploaded_file.seek(0)
+    except (AttributeError, OSError):
+        pass
+    payload = uploaded_file.read()
+
+    document = UploadedDocument(
+        user=request.user,
+        filename=filename,
+        status=UploadedDocument.Status.PROCESSING,
+    )
+
+    # ---- Store the binary --------------------------------------------------
+    if cloudinary_storage.is_enabled():
+        try:
+            asset = cloudinary_storage.upload(
+                io.BytesIO(payload), filename, owner_id=request.user.pk
+            )
+        except cloudinary_storage.CloudinaryError as exc:
+            # Never record a half-stored document. Nothing was written, so
+            # there is no orphan to clean up and no row to leave inconsistent.
+            logger.warning("Cloudinary upload failed for %s: %s", filename, exc)
+            return json_error(str(exc), status=502)
+
+        document.cloudinary_public_id = asset["public_id"]
+        document.cloudinary_resource_type = asset["resource_type"]
+        document.cloudinary_url = asset["url"]
+        document.cloudinary_version = asset["version"]
+        document.save()
+    else:
+        # Local development / tests: keep using Django's FileSystemStorage.
+        document.file = ContentFile(payload, name=filename)
+        document.save()
+
+    # ---- Extract the text --------------------------------------------------
+    try:
+        document.extracted_text = extract_text(io.BytesIO(payload), extension)
+        document.status = UploadedDocument.Status.READY
+        document.save(update_fields=["extracted_text", "status"])
+    except DocumentExtractionError as exc:
+        return _fail_document(document, str(exc))
+    except Exception:
+        logger.exception("Unexpected failure extracting upload %s", document.pk)
+        return _fail_document(document, "That file could not be processed.")
+
+    return JsonResponse({"success": True, "document": _document_payload(document)})
+
+
+@login_required
+@require_POST
+def clear_documents(request):
+    """Detach all active documents — called when starting a new conversation.
+
+    This is a soft detach only: the binaries are left in place so a document
+    can still be audited. Explicit removal (below) deletes the asset.
+    """
+    updated = UploadedDocument.objects.filter(user=request.user, is_active=True).update(
+        is_active=False
+    )
+    return JsonResponse({"success": True, "cleared": updated})
+
+
+@login_required
+@require_POST
+def remove_document(request, document_id):
+    """Remove a document and delete its stored binary.
+
+    SECURITY: the queryset is filtered by `user=request.user`, so the
+    Cloudinary public_id used for deletion can only ever come from a row the
+    requester owns. A public_id is never accepted from the request body —
+    that would let one user delete another user's asset.
+    """
+    document = get_object_or_404(UploadedDocument, id=document_id, user=request.user)
+
+    asset_deleted = None
+    if document.cloudinary_public_id:
+        asset_deleted = cloudinary_storage.delete(
+            document.cloudinary_public_id,
+            document.cloudinary_resource_type,
+        )
+        if asset_deleted:
+            document.cloudinary_public_id = ""
+            document.cloudinary_url = ""
+            document.cloudinary_version = ""
+    elif document.file:
+        # Local development storage.
+        try:
+            document.file.delete(save=False)
+            asset_deleted = True
+        except Exception:
+            logger.warning("Could not delete local file for document %s", document.pk)
+            asset_deleted = False
+
+    document.is_active = False
+    document.save()
+
+    # A Cloudinary outage must not block the user's removal action: the record
+    # is always deactivated, and a leaked asset is reported rather than hidden.
+    return JsonResponse({"success": True, "asset_deleted": asset_deleted})
+
+
+# ---------------------------------------------------------------------------
+# Voice command API
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_GET
+def voice_commands(request):
+    """Phrase → URL map used by the browser's voice intent matcher.
+
+    Served from the DB so an administrator can add commands from Django admin
+    without a code change or redeploy.
+    """
+    commands = VoiceCommand.objects.filter(is_active=True)
+    return JsonResponse(
+        {
+            "success": True,
+            "commands": [
+                {
+                    "phrase": command.trigger_phrase,
+                    "url": command.action_url,
+                    "native": command.native_scheme,
+                    "label": command.display_label,
+                }
+                for command in commands
+            ],
         }
     )
 

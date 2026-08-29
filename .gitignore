@@ -18,3 +18,14 @@ htmlcov/
 .env*
 !.env.example
 !companion_script/.env.example
+
+# Local developer tooling only — machine-specific paths and permissions.
+.claude/
+.audit_tmp/
+
+# Data export/import artifacts — contain real password hashes and other
+# personal data, never meant for version control.
+dubeyai_data_export.json
+*_data_export.json
+_probe.py
+.python-version.head

@@ -10,6 +10,7 @@ import datetime
 import logging
 import re
 import string
+from dataclasses import dataclass
 
 import dateparser.search
 import openai
@@ -32,6 +33,13 @@ class AIProviderError(Exception):
     """A safe, user-facing AI provider failure."""
 
 
+# Shown verbatim to end users, so it must read as guidance rather than a traceback.
+NO_ACTIVE_PROVIDER_MESSAGE = (
+    "No AI provider is configured yet. An administrator needs to add one and "
+    "mark it active under Control Panel → AI Providers."
+)
+
+
 def _strip_reasoning(text):
     if not text:
         return ""
@@ -39,25 +47,89 @@ def _strip_reasoning(text):
     return cleaned.replace("<think>", "").replace("</think>", "").strip()
 
 
+@dataclass(frozen=True)
+class ActiveAIClient:
+    """An OpenAI-compatible client bound to a specific AIProvider row.
+
+    `extra_body` carries provider-specific request fields. It is only populated
+    for providers that document them — OpenAI itself rejects unknown body
+    parameters with a 400, so these must never be sent indiscriminately.
+    """
+
+    provider: AIProvider
+    client: OpenAI
+    model: str
+    max_tokens: int
+    extra_body: dict
+
+
+def get_active_ai_client(provider=None):
+    """Return the AI client for the currently active provider, read from the DB.
+
+    This is the single entry point for every AI call in the project: provider,
+    endpoint, model and API key all come from the AIProvider table at request
+    time, so switching providers or rotating a key needs no redeploy.
+
+    Raises AIProviderError with a user-safe message when no usable provider is
+    configured — callers surface that text directly instead of a stack trace.
+    """
+    provider = provider or AIProvider.objects.filter(is_active=True).first()
+    if provider is None:
+        raise AIProviderError(NO_ACTIVE_PROVIDER_MESSAGE)
+
+    endpoint_url = provider.resolved_endpoint_url
+    if not endpoint_url:
+        raise AIProviderError(
+            f"The active AI provider ({provider.name}) has no endpoint URL. "
+            "An administrator needs to set one under Control Panel → AI Providers."
+        )
+    if not provider.api_key:
+        raise AIProviderError(
+            f"The active AI provider ({provider.name}) has no API key. "
+            "An administrator needs to set one under Control Panel → AI Providers."
+        )
+    if not provider.model_name:
+        raise AIProviderError(
+            f"The active AI provider ({provider.name}) has no model name. "
+            "An administrator needs to set one under Control Panel → AI Providers."
+        )
+
+    max_tokens = getattr(settings, "AI_MAX_TOKENS", 4096)
+    extra_body = {}
+    if provider.provider_type == AIProvider.ProviderType.NVIDIA:
+        # NVIDIA NIM-specific reasoning controls; unsupported elsewhere.
+        extra_body = {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "reasoning_budget": min(max_tokens, 4096),
+        }
+
+    return ActiveAIClient(
+        provider=provider,
+        client=OpenAI(
+            base_url=endpoint_url,
+            api_key=provider.api_key,
+            timeout=getattr(settings, "AI_TIMEOUT_SECONDS", 90),
+            max_retries=0,
+        ),
+        model=provider.model_name,
+        max_tokens=max_tokens,
+        extra_body=extra_body,
+    )
+
+
 class AIProviderService:
     """Thin abstraction over whichever AIProvider row is currently active.
 
     Every provider in this system speaks the OpenAI-compatible chat-completions
-    format (this is true for NVIDIA NIM and OpenAI itself, and most other hosted
-    LLM APIs). Swapping providers is a DB change (core.models.AIProvider) —
-    name/endpoint_url/api_key/model_name — never a code change here.
+    format (true for OpenAI, Anthropic, Gemini, Groq and NVIDIA NIM). Swapping
+    providers is a DB change (core.models.AIProvider) — never a code change here.
     """
 
     def __init__(self, provider=None):
-        self.provider = provider or AIProvider.objects.filter(is_active=True).first()
-        if self.provider is None:
-            raise AIProviderError("No active AI provider is configured.")
-        self._client = OpenAI(
-            base_url=self.provider.endpoint_url,
-            api_key=self.provider.api_key,
-            timeout=getattr(settings, "NVIDIA_TIMEOUT_SECONDS", 90),
-            max_retries=0,
-        )
+        active = get_active_ai_client(provider)
+        self.provider = active.provider
+        self._active = active
+        self._client = active.client
 
     def get_response(self, prompt, history=()):
         """Return the model's reply to `prompt`.
@@ -83,11 +155,12 @@ class AIProviderService:
 
         try:
             completion = self._client.chat.completions.create(
-                model=self.provider.model_name,
+                model=self._active.model,
                 messages=messages,
                 temperature=0.7,
                 top_p=0.95,
-                max_tokens=getattr(settings, "NVIDIA_MAX_TOKENS", 4096),
+                max_tokens=self._active.max_tokens,
+                extra_body=self._active.extra_body,
                 stream=False,
             )
             content = completion.choices[0].message.content

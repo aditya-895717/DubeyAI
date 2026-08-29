@@ -14,4 +14,8 @@ urlpatterns = [
     path("api/clear-history/", views.clear_chat_history, name="clear_history"),
     path("api/delete/<int:chat_id>/", views.delete_chat, name="delete_chat"),
     path("api/search/", views.search_chats, name="search_chats"),
+    path("api/upload/", views.upload_document, name="upload_document"),
+    path("api/documents/clear/", views.clear_documents, name="clear_documents"),
+    path("api/documents/<int:document_id>/remove/", views.remove_document, name="remove_document"),
+    path("api/voice-commands/", views.voice_commands, name="voice_commands"),
 ]

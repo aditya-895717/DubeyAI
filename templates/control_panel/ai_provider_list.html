@@ -5,13 +5,15 @@
 <a class="cp-btn" href="{% url 'control_panel:ai_provider_create' %}">+ New Provider</a>
 <div class="cp-card" style="margin-top: 16px;">
     <table class="cp-table">
-        <thead><tr><th>Name</th><th>Model</th><th>Endpoint</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Model</th><th>Endpoint</th><th>API key</th><th>Status</th><th></th></tr></thead>
         <tbody>
         {% for provider in providers %}
             <tr>
                 <td>{{ provider.name }}</td>
-                <td>{{ provider.model_name }}</td>
-                <td>{{ provider.endpoint_url }}</td>
+                <td>{{ provider.get_provider_type_display }}</td>
+                <td>{{ provider.model_name|default:"—" }}</td>
+                <td>{{ provider.resolved_endpoint_url|default:"—" }}</td>
+                <td>{% if provider.api_key %}•••••••• (set){% else %}not set{% endif %}</td>
                 <td>
                     {% if provider.is_active %}
                         <span class="cp-badge active">Active</span>
@@ -34,7 +36,7 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="5">No AI providers configured yet.</td></tr>
+            <tr><td colspan="7">No AI providers configured yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>

@@ -5,6 +5,7 @@
 <div class="cp-card">
     <form method="post" class="cp-form">
         {% csrf_token %}
+        {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|join:", " }}</div>{% endif %}
         {% for field in form %}
         <div>
             <label for="{{ field.id_for_label }}">{{ field.label }}</label>

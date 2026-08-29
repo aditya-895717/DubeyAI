@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from core.fields import EncryptedTextField
@@ -36,17 +37,72 @@ class SiteSettings(models.Model):
 
 
 class AIProvider(models.Model):
-    """Configured AI/LLM backend. Only one row may have is_active=True at a time."""
+    """Configured AI/LLM backend. Only one row may have is_active=True at a time.
+
+    Every supported provider is reached through the OpenAI-compatible
+    chat-completions API, so switching provider is a DB change (done from the
+    control panel or Django admin) rather than a redeploy — see
+    core.services.get_active_ai_client.
+    """
+
+    class ProviderType(models.TextChoices):
+        OPENAI = "openai", "OpenAI"
+        ANTHROPIC = "anthropic", "Anthropic (Claude)"
+        GEMINI = "gemini", "Google Gemini"
+        GROQ = "groq", "Groq"
+        NVIDIA = "nvidia", "NVIDIA NIM"
+        OTHER = "other", "Other (OpenAI-compatible)"
+
+    # Documented OpenAI-compatible base URLs, used when endpoint_url is blank.
+    # "other" has no default on purpose — a custom endpoint must be given.
+    DEFAULT_ENDPOINTS = {
+        ProviderType.OPENAI: "https://api.openai.com/v1",
+        ProviderType.ANTHROPIC: "https://api.anthropic.com/v1/",
+        ProviderType.GEMINI: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        ProviderType.GROQ: "https://api.groq.com/openai/v1",
+        ProviderType.NVIDIA: "https://integrate.api.nvidia.com/v1",
+    }
 
     name = models.CharField(max_length=100)
-    api_key = EncryptedTextField()
-    endpoint_url = models.URLField()
-    model_name = models.CharField(max_length=150)
-    is_active = models.BooleanField(default=False)
+    provider_type = models.CharField(
+        max_length=20,
+        choices=ProviderType.choices,
+        default=ProviderType.OTHER,
+        help_text="Selects the provider's default endpoint and request dialect.",
+    )
+    api_key = EncryptedTextField(
+        help_text="Encrypted at rest with FIELD_ENCRYPTION_KEY; never displayed once saved."
+    )
+    endpoint_url = models.URLField(
+        blank=True,
+        help_text="Leave blank to use the selected provider type's default base URL.",
+    )
+    model_name = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="Exact model ID to send, e.g. gpt-5.2, claude-opus-5, gemini-3-pro.",
+    )
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Exactly one provider is active; activating this one deactivates the rest.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def resolved_endpoint_url(self):
+        """The base URL to call: the explicit one, else this type's documented default."""
+        return self.endpoint_url or self.DEFAULT_ENDPOINTS.get(self.provider_type, "")
+
+    def clean(self):
+        # A custom/unknown provider has no default base URL to fall back on.
+        if not self.resolved_endpoint_url:
+            raise ValidationError(
+                {"endpoint_url": "An endpoint URL is required for this provider type."}
+            )
 
     def save(self, *args, **kwargs):
         if self.is_active:
@@ -153,3 +209,52 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f"{self.user.username}: {self.endpoint[:60]}"
+
+
+class VoiceCommand(models.Model):
+    """A spoken phrase that opens a URL directly, without calling the AI.
+
+    Browsers can only navigate to URLs — a web page cannot launch a native
+    desktop or mobile application, so `action_url` should normally be an https
+    web URL (e.g. https://web.whatsapp.com). `native_scheme` is an optional
+    best-effort custom scheme (e.g. whatsapp://send): it usually works on
+    mobile, is unreliable on desktop, and the frontend always falls back to
+    `action_url` if nothing intercepts it.
+    """
+
+    trigger_phrase = models.CharField(
+        max_length=120,
+        unique=True,
+        help_text="Lowercase phrase to match in speech, e.g. 'open whatsapp' or 'whatsapp khol do'.",
+    )
+    action_url = models.URLField(
+        max_length=500,
+        help_text="Web URL opened in a new tab, e.g. https://web.whatsapp.com",
+    )
+    native_scheme = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Optional custom scheme tried first on mobile, e.g. whatsapp://send",
+    )
+    label = models.CharField(
+        max_length=80,
+        blank=True,
+        help_text="Shown in the toast, e.g. 'WhatsApp'. Defaults to the trigger phrase.",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["trigger_phrase"]
+        verbose_name = "voice command"
+
+    def save(self, *args, **kwargs):
+        self.trigger_phrase = self.trigger_phrase.strip().lower()
+        super().save(*args, **kwargs)
+
+    @property
+    def display_label(self):
+        return self.label or self.trigger_phrase.title()
+
+    def __str__(self):
+        return f"{self.trigger_phrase} -> {self.action_url}"

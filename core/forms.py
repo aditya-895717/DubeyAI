@@ -45,23 +45,16 @@ class ContentBlockForm(StyledFormMixin, forms.ModelForm):
         self.apply_styles()
 
 
-class AIProviderForm(StyledFormMixin, forms.ModelForm):
-    api_key = forms.CharField(
-        required=False,
-        widget=forms.PasswordInput(
-            render_value=False,
-            attrs={"placeholder": "Leave blank to keep the current key"},
-        ),
-        help_text="Leave blank when editing to keep the existing key unchanged.",
-    )
+class WriteOnlyApiKeyMixin:
+    """Never render a stored API key back to the browser.
 
-    class Meta:
-        model = AIProvider
-        fields = ["name", "api_key", "endpoint_url", "model_name"]
+    The key is decrypted transparently by EncryptedTextField, so a plain
+    ModelForm would echo the real secret into the HTML. PasswordInput with
+    render_value=False keeps the input empty, and a blank submission is treated
+    as "keep the existing key" rather than as "clear the key".
+    """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.apply_styles()
+    def init_api_key_field(self):
         # A new provider must be created with a key; editing may leave it blank.
         self.fields["api_key"].required = not self.instance.pk
 
@@ -70,3 +63,41 @@ class AIProviderForm(StyledFormMixin, forms.ModelForm):
         if not value and self.instance.pk:
             return self.instance.api_key
         return value
+
+
+def api_key_form_field(required=False):
+    return forms.CharField(
+        required=required,
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={"placeholder": "Leave blank to keep the current key"},
+        ),
+        help_text="Encrypted at rest. Leave blank when editing to keep the existing key.",
+    )
+
+
+class AIProviderForm(WriteOnlyApiKeyMixin, StyledFormMixin, forms.ModelForm):
+    api_key = api_key_form_field()
+
+    class Meta:
+        model = AIProvider
+        fields = ["name", "provider_type", "api_key", "endpoint_url", "model_name"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+        self.init_api_key_field()
+
+
+class AIProviderAdminForm(WriteOnlyApiKeyMixin, forms.ModelForm):
+    """Django admin variant — same write-only key handling, no control-panel CSS."""
+
+    api_key = api_key_form_field()
+
+    class Meta:
+        model = AIProvider
+        fields = ["name", "provider_type", "api_key", "endpoint_url", "model_name", "is_active"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.init_api_key_field()

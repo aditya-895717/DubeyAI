@@ -124,8 +124,16 @@ def ai_provider_list(request):
 def ai_provider_create(request):
     form = AIProviderForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "AI provider added.")
+        is_first = not AIProvider.objects.exists()
+        provider = form.save(commit=False)
+        # The very first provider becomes active automatically — otherwise the
+        # app would still report "no active provider" right after setup.
+        provider.is_active = is_first
+        provider.save()
+        messages.success(
+            request,
+            "AI provider added and set active." if is_first else "AI provider added.",
+        )
         return redirect("control_panel:ai_provider_list")
     return render(
         request,
@@ -153,8 +161,14 @@ def ai_provider_edit(request, pk):
 @require_POST
 def ai_provider_delete(request, pk):
     provider = get_object_or_404(AIProvider, pk=pk)
+    was_active = provider.is_active
     provider.delete()
     messages.success(request, "AI provider deleted.")
+    if was_active and not AIProvider.objects.filter(is_active=True).exists():
+        messages.warning(
+            request,
+            "That was the active provider — AI replies will fail until you set another one active.",
+        )
     return redirect("control_panel:ai_provider_list")
 
 

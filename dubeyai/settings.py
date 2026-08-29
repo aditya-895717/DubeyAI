@@ -222,6 +222,8 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 STORAGES = {
+    # Overridden to Cloudinary further down when credentials are configured —
+    # see the Cloudinary section. Local dev keeps FileSystemStorage.
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
         # CompressedManifestStaticFilesStorage adds hash fingerprints and
@@ -231,13 +233,56 @@ STORAGES = {
 }
 
 # ---------------------------------------------------------------------------
-# Media files (user uploads — e.g. SiteSettings.logo)
+# Media files (user uploads)
 # ---------------------------------------------------------------------------
-# WhiteNoise only serves STATIC_ROOT; in production, MEDIA_ROOT needs an
-# object-storage backend (S3/Cloudinary/etc.) — not configured in this phase.
+# MEDIA_ROOT is the LOCAL DEVELOPMENT store only. Vercel's serverless
+# filesystem is ephemeral — anything written here vanishes between
+# invocations — so production persists uploads to Cloudinary instead (below).
+# Local dev and the test suite deliberately keep working with no Cloudinary
+# credentials configured.
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# ---------------------------------------------------------------------------
+# Cloudinary (persistent media storage)
+# ---------------------------------------------------------------------------
+# Structured application data lives in Neon PostgreSQL; the binary files
+# themselves live in Cloudinary. The database keeps only the Cloudinary
+# metadata (public_id / resource_type / URL / version).
+#
+# All three values must be present for Cloudinary to be considered configured.
+# When they are absent the app falls back to MEDIA_ROOT, which is correct for
+# local development but must never be relied on in production.
+
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "").strip()
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+CLOUDINARY_FOLDER = os.getenv("CLOUDINARY_FOLDER", "dubeyai").strip()
+
+CLOUDINARY_ENABLED = bool(
+    CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET
+)
+
+if CLOUDINARY_ENABLED:
+    # Ordinary FileField/ImageField uploads (e.g. SiteSettings.logo) persist to
+    # Cloudinary instead of Vercel's ephemeral disk. UploadedDocument bypasses
+    # this and calls core.storage.upload() directly, because it needs the
+    # public_id and resource_type recorded in the database for later deletion.
+    STORAGES["default"] = {"BACKEND": "core.storage.CloudinaryMediaStorage"}
+
+# Fail loudly rather than silently writing production uploads to a disk that
+# is about to disappear. VERCEL is set automatically on every deployment.
+if os.getenv("VERCEL", "") and not CLOUDINARY_ENABLED and not DEBUG:
+    import warnings  # noqa: PLC0415
+
+    warnings.warn(
+        "Running on Vercel without Cloudinary credentials. Uploaded files will "
+        "NOT persist between requests. Set CLOUDINARY_CLOUD_NAME, "
+        "CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.",
+        RuntimeWarning,
+        stacklevel=1,
+    )
 
 # ---------------------------------------------------------------------------
 # Django defaults
@@ -253,12 +298,27 @@ LOGOUT_REDIRECT_URL = "login"
 # ---------------------------------------------------------------------------
 # NVIDIA / OpenAI-compatible API
 # ---------------------------------------------------------------------------
+# These are the *legacy/bootstrap* values only: they seed the first AIProvider
+# row (see core/migrations/0002_seed_default_ai_provider.py) and feed the /ping/
+# health check. Live AI calls do NOT read them — provider, endpoint, model and
+# API key are read from the AIProvider table at request time so they can be
+# changed from the control panel without a redeploy. See
+# core.services.get_active_ai_client.
 
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
 NVIDIA_TIMEOUT_SECONDS = env_int("NVIDIA_TIMEOUT_SECONDS", 90)
 NVIDIA_MAX_TOKENS = env_int("NVIDIA_MAX_TOKENS", 4096)
+
+# ---------------------------------------------------------------------------
+# AI request tuning (provider-independent)
+# ---------------------------------------------------------------------------
+# Applies to whichever AIProvider is active. Defaults inherit the older
+# NVIDIA_* values so existing deployments keep their current behaviour.
+
+AI_TIMEOUT_SECONDS = env_int("AI_TIMEOUT_SECONDS", NVIDIA_TIMEOUT_SECONDS)
+AI_MAX_TOKENS = env_int("AI_MAX_TOKENS", NVIDIA_MAX_TOKENS)
 
 # ---------------------------------------------------------------------------
 # Chatbot limits

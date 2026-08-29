@@ -12,7 +12,24 @@ psycopg[binary]==3.2.9
 openai==1.82.1
 
 # Image uploads (SiteSettings.logo)
-Pillow==11.1.0
+# Must be >=12.2.0: pdfplumber 0.11.10 requires it. Pinning 11.1.0 here made
+# the dependency set unresolvable and would have failed the Vercel build.
+Pillow==12.3.0
+
+# Chat file uploads — text extraction
+# pdfplumber and python-docx are pure-Python (plus wheels) and install fine on
+# Vercel's serverless Python runtime.
+pdfplumber==0.11.10
+python-docx==1.2.0
+
+# Image OCR is INTENTIONALLY NOT INSTALLED. pytesseract is only a wrapper — it
+# needs the `tesseract` system binary, which cannot be installed on Vercel's
+# read-only serverless filesystem. chatbot/documents.py degrades to a clear
+# "OCR unavailable" message instead of failing. To enable OCR, either deploy to
+# a host where you control the image (Render/Docker: apt-get install
+# tesseract-ocr) and add `pytesseract`, or swap _extract_image() for a hosted
+# OCR API (Google Vision, AWS Textract, Azure Document Intelligence).
+# pytesseract==0.3.13
 
 # Encrypted model fields (AIProvider.api_key)
 cryptography==50.0.0
@@ -22,6 +39,10 @@ dateparser==1.2.0
 
 # Web Push notifications (VAPID) — PWA push support
 pywebpush==2.3.0
+
+# Persistent media storage for production (Vercel's filesystem is ephemeral).
+# Pure-Python SDK — installs fine on Vercel's serverless Python runtime.
+cloudinary==1.46.2
 
 # Production server
 gunicorn==23.0.0
