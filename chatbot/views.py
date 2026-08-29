@@ -364,8 +364,12 @@ def upload_document(request):
         except cloudinary_storage.CloudinaryError as exc:
             # Never record a half-stored document. Nothing was written, so
             # there is no orphan to clean up and no row to leave inconsistent.
+            #
+            # 400 when the file itself was rejected (retrying cannot help),
+            # 502 when storage was unreachable (retrying might).
             logger.warning("Cloudinary upload failed for %s: %s", filename, exc)
-            return json_error(str(exc), status=502)
+            status = 400 if getattr(exc, "is_client_error", False) else 502
+            return json_error(str(exc), status=status)
 
         document.cloudinary_public_id = asset["public_id"]
         document.cloudinary_resource_type = asset["resource_type"]

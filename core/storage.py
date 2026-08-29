@@ -23,7 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 class CloudinaryError(Exception):
-    """A safe, user-facing Cloudinary failure."""
+    """A safe, user-facing Cloudinary failure.
+
+    `is_client_error` distinguishes "this file is unacceptable" (the user's
+    problem — retrying will not help) from "storage is unavailable" (our
+    problem — retrying might). Callers map the first to 400 and the second to
+    502 so the status code and the message agree with each other.
+    """
+
+    def __init__(self, message, is_client_error=False):
+        super().__init__(message)
+        self.is_client_error = is_client_error
 
 
 # Cloudinary splits assets into three delivery types and they are NOT
@@ -77,6 +87,33 @@ def _configure():
     return cloudinary
 
 
+def _is_rejected_by_cloudinary(exc):
+    """True when Cloudinary refused the file rather than failing to reach it.
+
+    The SDK raises BadRequest/NotAllowed for unacceptable input; connection and
+    server errors are a different class entirely.
+    """
+    try:
+        from cloudinary.exceptions import BadRequest, NotAllowed  # noqa: PLC0415
+
+        if isinstance(exc, (BadRequest, NotAllowed)):
+            return True
+    except ImportError:  # pragma: no cover
+        pass
+
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "invalid image file",
+            "invalid file",
+            "unsupported file",
+            "empty file",
+            "corrupt",
+        )
+    )
+
+
 def upload(file_obj, filename, folder=None, owner_id=None):
     """Upload a file object to Cloudinary and return its metadata.
 
@@ -113,6 +150,15 @@ def upload(file_obj, filename, folder=None, owner_id=None):
         )
     except Exception as exc:
         logger.warning("Cloudinary upload failed for %s: %s", filename, exc)
+        if _is_rejected_by_cloudinary(exc):
+            # Cloudinary refused the file itself (corrupt, or not really the
+            # format its extension claims). Retrying will never help, so say so
+            # plainly instead of blaming the server.
+            raise CloudinaryError(
+                "That file appears to be corrupt or is not a valid "
+                f"{os.path.splitext(filename)[1].lstrip('.').upper() or 'file'}.",
+                is_client_error=True,
+            ) from exc
         raise CloudinaryError(
             "The file could not be stored right now. Please try again."
         ) from exc

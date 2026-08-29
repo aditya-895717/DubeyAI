@@ -113,6 +113,22 @@ class StorageModuleTests(TestCase):
             cloudinary_storage.upload(io.BytesIO(b"data"), "a.pdf", owner_id=1)
         # The user-facing message must not leak the underlying exception.
         self.assertNotIn("network down", str(ctx.exception))
+        # A transient failure is not the user's fault.
+        self.assertFalse(ctx.exception.is_client_error)
+
+    @patch("cloudinary.uploader.upload", side_effect=RuntimeError("Invalid image file"))
+    def test_rejected_file_is_flagged_as_client_error(self, _mock):
+        with self.assertRaises(cloudinary_storage.CloudinaryError) as ctx:
+            cloudinary_storage.upload(io.BytesIO(b"broken"), "photo.png", owner_id=1)
+        self.assertTrue(ctx.exception.is_client_error)
+        self.assertIn("corrupt", str(ctx.exception))
+        self.assertIn("PNG", str(ctx.exception))
+
+    def test_bad_request_exception_is_a_client_error(self):
+        from cloudinary.exceptions import BadRequest
+
+        self.assertTrue(cloudinary_storage._is_rejected_by_cloudinary(BadRequest("nope")))
+        self.assertFalse(cloudinary_storage._is_rejected_by_cloudinary(ConnectionError("timeout")))
 
     @patch("cloudinary.uploader.upload", return_value={"resource_type": "raw"})
     def test_upload_without_public_id_is_a_failure(self, _mock):
@@ -204,12 +220,29 @@ class UploadEndpointCloudinaryTests(TestCase):
         self.assertTrue(document.stored_in_cloudinary)
 
     @patch("core.storage.upload", side_effect=cloudinary_storage.CloudinaryError("Storage unavailable."))
-    def test_cloudinary_failure_creates_no_document(self, _mock):
+    def test_cloudinary_outage_returns_502_and_creates_no_document(self, _mock):
         upload = SimpleUploadedFile("report.pdf", make_pdf_bytes(), content_type="application/pdf")
         response = self.client.post(self.url, {"file": upload})
 
+        # 502: our problem, retrying might help.
         self.assertEqual(response.status_code, 502)
         # No half-stored row: nothing was persisted, so nothing to clean up.
+        self.assertEqual(UploadedDocument.objects.count(), 0)
+
+    @patch(
+        "core.storage.upload",
+        side_effect=cloudinary_storage.CloudinaryError(
+            "That file appears to be corrupt or is not a valid PNG.", is_client_error=True
+        ),
+    )
+    def test_rejected_file_returns_400_not_502(self, _mock):
+        upload = SimpleUploadedFile("photo.png", b"\x89PNG\r\n\x1a\nbroken", content_type="image/png")
+        response = self.client.post(self.url, {"file": upload})
+
+        # 400: the user's problem. A 502 here would wrongly imply a server
+        # fault and invite a pointless retry.
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("corrupt", response.json()["error"])
         self.assertEqual(UploadedDocument.objects.count(), 0)
 
     @patch("core.storage.upload")

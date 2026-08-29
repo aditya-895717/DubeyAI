@@ -29,3 +29,5 @@ dubeyai_data_export.json
 *_data_export.json
 _probe.py
 .python-version.head
+.e2e_check.py
+.bypass
