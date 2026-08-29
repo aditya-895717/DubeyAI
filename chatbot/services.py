@@ -29,19 +29,27 @@ def build_document_context(documents):
     without bound.
     """
     sections = []
-    for document in documents:
+    for index, document in enumerate(documents, start=1):
         if not document.extracted_text.strip():
             continue
+        # Number and delimit each document explicitly. With several attached at
+        # once the model would otherwise blend them and answer from the wrong
+        # one — observed in end-to-end testing when a PDF and a DOCX were both
+        # active.
         sections.append(
-            f'The user has shared a document titled "{document.filename}".\n'
-            f"Content:\n{document.extracted_text}"
+            f'=== DOCUMENT {index}: "{document.filename}" ===\n'
+            f"{document.extracted_text}\n"
+            f"=== END OF DOCUMENT {index} ==="
         )
     if not sections:
         return None
+
+    listing = ", ".join(f'"{document.filename}"' for document in documents)
     return (
-        "The following documents were uploaded by the user. Use them to answer "
-        "questions about their content, and say so plainly if the answer is not "
-        "in them.\n\n" + "\n\n---\n\n".join(sections)
+        f"The user has uploaded {len(sections)} document(s): {listing}.\n\n"
+        "When the question names or implies a specific document (by filename or "
+        "file type), answer ONLY from that document and ignore the others. "
+        "State plainly if the answer is not present.\n\n" + "\n\n".join(sections)
     )
 
 
