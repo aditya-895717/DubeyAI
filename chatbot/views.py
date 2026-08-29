@@ -553,6 +553,12 @@ def ping(request):
     secret_key = os.environ.get("SECRET_KEY", "")
     allowed_hosts = os.environ.get("ALLOWED_HOSTS", "NOT SET")
 
+    # Report the engine actually in use rather than a hardcoded guess — this is
+    # the only way to confirm from outside that a deployment reached Neon
+    # instead of silently falling back to an ephemeral SQLite file.
+    engine = settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
+    database = "postgresql" if "postgres" in engine else engine
+
     return JsonResponse(
         {
             "status": "ok",
@@ -564,7 +570,10 @@ def ping(request):
                 and secret_key != "unsafe-dev-key-change-in-prod",
                 "allowed_hosts": allowed_hosts,
                 "debug_mode": os.environ.get("DEBUG", "False"),
-                "database": "sqlite",
+                "database": database,
+                # Confirms uploads persist to Cloudinary rather than to
+                # Vercel's ephemeral filesystem. Booleans only — never values.
+                "cloudinary_configured": bool(settings.CLOUDINARY_ENABLED),
             },
         }
     )
